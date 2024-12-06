@@ -9,23 +9,15 @@
 #include "xt_dnp3.h"
 
 
-static int dnp3_mt_calculate_checksum( u8 * buff, u32 len );
-
-static int dnp3_mt_check_checksum( u8 * buff, u32 len );
-
-static int dnp3_mt_check_rule( const struct xt_mtchk_param *par );
-
-static bool dnp3_mt_match_rule( const struct sk_buff *skb, struct xt_action_param *par );
-
-static inline bool dnp3_mt_match_value( u16 value, u16 min, u16 max, bool invert );
-
-static bool dnp3_mt_process_payload( const struct iphdr *iph, u8 *payload, ssize_t len, struct xt_action_param *par );
-
-static struct xt_dnp3_session * dnp3_mt_session( const struct iphdr *iph, const struct pkt_dnp3_header *pkth, bool new_match );
-
-static int dnp3_mt_validate_frame( u8 * buff, u32 len );
-
-static int dnp3_mt_validate_header( u8 * buff, u32 len );
+static int dnp3_mt_calculate_checksum(u8 *buff, u32 len);
+static int dnp3_mt_check_checksum(u8 *buff, u32 len);
+static int dnp3_mt_check_rule(const struct xt_mtchk_param *par);
+static bool dnp3_mt_match_rule(const struct sk_buff *skb, struct xt_action_param *par);
+static inline bool dnp3_mt_match_value(u16 value, u16 min, u16 max, bool invert);
+static bool dnp3_mt_process_payload(const struct iphdr *iph, u8 *payload, ssize_t len, struct xt_action_param *par);
+static struct xt_dnp3_session * dnp3_mt_session(const struct iphdr *iph, const struct pkt_dnp3_header *pkth, bool new_match);
+static int dnp3_mt_validate_frame(u8 *buff, u32 len);
+static int dnp3_mt_validate_header(u8 *buff, u32 len);
 
 
 static const u16 _crc[256] = {
@@ -68,43 +60,43 @@ static struct xt_dnp3_session _session[XT_DNP3_SESSIONS];
 
 
 static int 
-dnp3_mt_calculate_checksum( u8 * buff, u32 len ) {
+dnp3_mt_calculate_checksum(u8 *buff, u32 len) {
     u16 crc;
 
     crc = 0;
-    while( len-- ) {
-        crc = ( u16 ) ( ( crc >> 8 ) ^ ( _crc[ ( ( crc ^ *buff++ ) & 0x00ff ) ] ) );
+    while (len--) {
+        crc = (u16) ((crc >> 8) ^ (_crc[((crc ^ *buff++) & 0x00ff)]));
     }
-    return ( ~crc & 0xffff );
+    return (~crc & 0xffff);
 }
 
 
 static int
-dnp3_mt_check_checksum( u8 * buff, u32 len ) {
+dnp3_mt_check_checksum(u8* buff, u32 len) {
     u16 crc1, crc2;
 
-    if( len == 0 ) {
+    if (len == 0) {
         return 0;
     }
-    else if( len < 3 ) {
+    else if (len < 3) {
         return -EINVAL;
     }
     else {};
 
-    crc1 = dnp3_mt_calculate_checksum( buff, len - 2 );
-    buff += ( len - 2 );
-    crc2 = le16_to_cpu( *( u16 * ) buff );
+    crc1 = dnp3_mt_calculate_checksum(buff, len - 2);
+    buff += (len - 2);
+    crc2 = le16_to_cpu(*(u16 *)buff);
 
-    return ( crc1 == crc2 ) ? 0 : -EINVAL;
+    return (crc1 == crc2) ? 0 : -EINVAL;
 }
 
 
 static int
-dnp3_mt_check_rule( const struct xt_mtchk_param *par ) {
+dnp3_mt_check_rule(const struct xt_mtchk_param *par) {
     const struct xt_dnp3_rule *rule = par->matchinfo;
     
-    if( ( rule->set & ~XT_DNP3_FLAG_MASK ) ||
-            ( rule->invert & ~XT_DNP3_FLAG_MASK ) ) {
+    if ((rule->set & ~XT_DNP3_FLAG_MASK) ||
+            (rule->invert & ~XT_DNP3_FLAG_MASK)) {
         return -EINVAL;
     }
     return 0;
@@ -112,45 +104,45 @@ dnp3_mt_check_rule( const struct xt_mtchk_param *par ) {
 
 
 static bool
-dnp3_mt_match_rule( const struct sk_buff *skb, struct xt_action_param *par ) {
-    const struct iphdr *iph = ip_hdr( skb );
+dnp3_mt_match_rule(const struct sk_buff *skb, struct xt_action_param *par) {
+    const struct iphdr *iph = ip_hdr(skb);
     struct tcphdr *tcph;
     struct udphdr *udph;
     ssize_t length;
     u8 *payload;
 
-    switch( iph->protocol ) {
+    switch (iph->protocol) {
         case IPPROTO_TCP:
-            tcph = tcp_hdr( skb );
-            payload = ( ( u8 * ) tcph + ( tcph->doff * 4 ) );
+            tcph = tcp_hdr(skb);
+            payload = ((u8 *)tcph + (tcph->doff * 4));
             break;
         case IPPROTO_UDP:
-            udph = udp_hdr( skb );
-            payload = ( ( u8 * ) udph + sizeof( struct udphdr ) );
+            udph = udp_hdr(skb);
+            payload = ((u8 *)udph + sizeof(struct udphdr));
             break;
         default:
             return false;
     }
 
-    length = ( skb_tail_pointer( skb ) - payload );
-    return dnp3_mt_process_payload( iph, payload, length, par );
+    length = (skb_tail_pointer(skb) - payload);
+    return dnp3_mt_process_payload(iph, payload, length, par);
 }
 
 
 static inline bool 
-dnp3_mt_match_value( u16 value, 
+dnp3_mt_match_value(u16 value, 
         u16 min, 
         u16 max, 
-        bool invert ) {
-    return ( ( ( value >= min ) && ( value <= max ) ) ^ invert );
+        bool invert) {
+    return (((value >= min) && (value <= max)) ^ invert);
 }
 
 
 static bool
-dnp3_mt_process_payload( const struct iphdr *iph, 
+dnp3_mt_process_payload(const struct iphdr *iph, 
         u8 *payload, 
         ssize_t len, 
-        struct xt_action_param *par ) {
+        struct xt_action_param *par) {
     const struct xt_dnp3_rule *rule = par->matchinfo;
     const struct pkt_dnp3_header *pkth;
     struct xt_dnp3_session *session;
@@ -159,14 +151,14 @@ dnp3_mt_process_payload( const struct iphdr *iph,
     u8 expected, func, invert, match, seq, tspt;
     ssize_t length;
 
-    for(; len > 0;) {
-        if( len < sizeof( struct pkt_dnp3_header ) ) {
+    for (; len > 0;) {
+        if (len < sizeof(struct pkt_dnp3_header)) {
             return false;
         }
-        if( dnp3_mt_validate_header( payload, DNP3_LINK_HDR_LENGTH ) != 0 ) {
+        if (dnp3_mt_validate_header(payload, DNP3_LINK_HDR_LENGTH) != 0) {
             return false;
         }
-        pkth = ( struct pkt_dnp3_header * ) payload;
+        pkth = (struct pkt_dnp3_header *) payload;
 
         /*
             At this point a valid DNP3 link layer header appears to have been received.
@@ -176,26 +168,26 @@ dnp3_mt_process_payload( const struct iphdr *iph,
             and fail, further processing of the DNP3 frame can be aborted.
         */
 
-        daddr = le16_to_cpu( pkth->daddr );
-        if( rule->set & XT_DNP3_FLAG_DADDR ) {
-            if( ! dnp3_mt_match_value( daddr,
+        daddr = le16_to_cpu(pkth->daddr);
+        if (rule->set & XT_DNP3_FLAG_DADDR) {
+            if (!dnp3_mt_match_value(daddr,
                     rule->daddr[0],
                     rule->daddr[1],
-                    !! ( rule->invert & XT_DNP3_FLAG_DADDR ) ) ) {
+                    !! (rule->invert & XT_DNP3_FLAG_DADDR))) {
                 return false;		
             }
         }
-        saddr = le16_to_cpu( pkth->saddr );
-        if( rule->set & XT_DNP3_FLAG_SADDR ) {
-            if( ! dnp3_mt_match_value( saddr,
+        saddr = le16_to_cpu(pkth->saddr);
+        if (rule->set & XT_DNP3_FLAG_SADDR) {
+            if (!dnp3_mt_match_value(saddr,
                     rule->saddr[0],
                     rule->saddr[1],
-                    !! ( rule->invert & XT_DNP3_FLAG_SADDR ) ) ) {
+                    !! (rule->invert & XT_DNP3_FLAG_SADDR))) {
                 return false;		
             }		
         }
 
-        if( ( length = dnp3_mt_validate_frame( payload, len ) ) < 0 ) {
+        if ((length = dnp3_mt_validate_frame(payload, len)) < 0) {
             return false;
         }
 
@@ -212,29 +204,29 @@ dnp3_mt_process_payload( const struct iphdr *iph,
             transmission of subsequent frames of the DNP3 message.
         */
 
-        for(;;) {
-            if( ! ( rule->set & XT_DNP3_FLAG_FC ) ) {
+        for (;;) {
+            if (!(rule->set & XT_DNP3_FLAG_FC)) {
                 break;
             }
-            src = ntohl( iph->saddr );
-            dest = ntohl( iph->daddr );
+            src = ntohl(iph->saddr);
+            dest = ntohl(iph->daddr);
 
-            tspt = payload[ DNP3_LINK_HDR_LENGTH ];
+            tspt = payload[DNP3_LINK_HDR_LENGTH];
             seq = tspt & DNP3_TSPT_HDR_SEQUENCE_MASK;
             
-            if( tspt & DNP3_TSPT_HDR_FIRST_MASK ) {
-                func = payload[ DNP3_LINK_HDR_LENGTH + DNP3_TSPT_HDR_LENGTH + DNP3_APPL_FC_OFFSET ];
-                match = ( ( rule->fc[ func / 8 ] & ( 1 << ( func % 8 ) ) ) != 0 );
-                invert = !! ( rule->invert & XT_DNP3_FLAG_FC );
-                if( ! ( match ^ invert ) ) {
+            if (tspt & DNP3_TSPT_HDR_FIRST_MASK) {
+                func = payload[DNP3_LINK_HDR_LENGTH + DNP3_TSPT_HDR_LENGTH + DNP3_APPL_FC_OFFSET];
+                match = ((rule->fc[func / 8] & (1 << (func % 8))) != 0);
+                invert = !! (rule->invert & XT_DNP3_FLAG_FC);
+                if (!(match ^ invert)) {
                     return false;
                 }
 
-                if( tspt & DNP3_TSPT_HDR_FINAL_MASK ) {
+                if (tspt & DNP3_TSPT_HDR_FINAL_MASK) {
                     break;
                 }
                 
-                if( ! ( session = dnp3_mt_session( iph, pkth, true ) ) ) {
+                if (!(session = dnp3_mt_session(iph, pkth, true))) {
                     par->hotdrop = true;
                     return false;
                 }
@@ -246,18 +238,18 @@ dnp3_mt_process_payload( const struct iphdr *iph,
                 session->active = true;
             }
             else {
-                if( ! ( session = dnp3_mt_session( iph, pkth, false ) ) ) {
+                if (!(session = dnp3_mt_session(iph, pkth, false))) {
                     par->hotdrop = true;
                     return false;
                 }
-                expected = ( ( session->seq + 1 ) & DNP3_TSPT_HDR_SEQUENCE_MASK );
-                if( seq != expected ) {
+                expected = ((session->seq + 1) & DNP3_TSPT_HDR_SEQUENCE_MASK);
+                if (seq != expected) {
                     par->hotdrop = true;
                     return false;
                 }
                 session->seq = seq;
 
-                if( tspt & DNP3_TSPT_HDR_FINAL_MASK ) {
+                if (tspt & DNP3_TSPT_HDR_FINAL_MASK) {
                     session->active = false;
                 }
             }
@@ -274,30 +266,30 @@ dnp3_mt_process_payload( const struct iphdr *iph,
 
 
 static struct xt_dnp3_session *
-dnp3_mt_session( const struct iphdr *iph, 
+dnp3_mt_session(const struct iphdr *iph, 
         const struct pkt_dnp3_header *pkth, 
-        bool new_match ) {
+        bool new_match) {
     struct xt_dnp3_session *session;
     u32 dest, src;
     u16 daddr, saddr;
     int index;
 
-    dest = ntohl( iph->daddr );
-    src = ntohl( iph->saddr );
-    daddr = le16_to_cpu( pkth->daddr );
-    saddr = le16_to_cpu( pkth->saddr );
+    dest = ntohl(iph->daddr);
+    src = ntohl(iph->saddr);
+    daddr = le16_to_cpu(pkth->daddr);
+    saddr = le16_to_cpu(pkth->saddr);
 
-    for( index = 0, session = NULL; index < ARRAY_SIZE( _session ); ++index ) {
-        if( ( _session[ index ].dest == dest ) &&
-                ( _session[ index ].src == src ) &&
-                ( _session[ index ].daddr == daddr ) &&
-                ( _session[ index ].saddr == saddr ) ) {
+    for (index = 0, session = NULL; index < ARRAY_SIZE(_session); ++index) {
+        if ((_session[index].dest == dest) &&
+                (_session[index].src == src) &&
+                (_session[index].daddr == daddr) &&
+                (_session[index].saddr == saddr)) {
             return &_session[index];
         }
-        if( ( new_match ) &&
-                ( ! session ) &&
-                ( ! _session[ index ].active ) ) {
-            session = &_session[ index ];
+        if ((new_match) &&
+                (!session) &&
+                (!_session[index].active)) {
+            session = &_session[index];
         }
     }
     return session;
@@ -305,23 +297,23 @@ dnp3_mt_session( const struct iphdr *iph,
 
 
 static int 
-dnp3_mt_validate_frame( u8 * buff, u32 len ) {
+dnp3_mt_validate_frame(u8 *buff, u32 len) {
     struct pkt_dnp3_header *pkth;
     u32 bytes, index, length, segment;
 
-    pkth = ( struct pkt_dnp3_header * ) buff;
-    bytes = ( pkth->length - 5 );
-    length = bytes + ( ( bytes / 16 ) * 2 ) + 10;
-    if( ( bytes % 16 ) != 0 ) {
+    pkth = (struct pkt_dnp3_header *) buff;
+    bytes = (pkth->length - 5);
+    length = bytes + ((bytes / 16) * 2) + 10;
+    if ((bytes % 16) != 0) {
         length += 2;
     }
-    if( len < length ) {
+    if (len < length) {
         return -1;
     }
 
-    for( index = 10u; index < length; index += 18u ) {
-        segment = ( ( length - index ) > 18u ) ? 18u : ( length - index );
-        if( dnp3_mt_check_checksum( &buff[ index ], segment ) != 0 ) {
+    for (index = 10u; index < length; index += 18u) {
+        segment = ((length - index) > 18u) ? 18u : (length - index);
+        if (dnp3_mt_check_checksum(&buff[index], segment) != 0) {
             return -1;
         }
     }
@@ -330,17 +322,17 @@ dnp3_mt_validate_frame( u8 * buff, u32 len ) {
 
 
 static int 
-dnp3_mt_validate_header( u8 * buff, u32 len ) {
+dnp3_mt_validate_header(u8 *buff, u32 len) {
     struct pkt_dnp3_header *pkth;
 
-    if( len < sizeof( struct pkt_dnp3_header ) ) {
+    if (len < sizeof(struct pkt_dnp3_header)) {
         return -1;
     }
-    pkth = ( struct pkt_dnp3_header * ) buff;
-    if( ( pkth->sync1 != 0x05 ) ||
-            ( pkth->sync2 != 0x64 ) ||
-            ( pkth->length < 5 ) ||
-            ( dnp3_mt_check_checksum( buff, DNP3_LINK_HDR_LENGTH ) != 0 ) ) {
+    pkth = (struct pkt_dnp3_header *) buff;
+    if ((pkth->sync1 != 0x05) ||
+            (pkth->sync2 != 0x64) ||
+            (pkth->length < 5) ||
+            (dnp3_mt_check_checksum(buff, DNP3_LINK_HDR_LENGTH) != 0)) {
         return -1;
     }
     return 0;
@@ -353,27 +345,27 @@ static struct xt_match dnp3_mt_reg[] __read_mostly = {
         .family     = NFPROTO_IPV4,
         .checkentry = dnp3_mt_check_rule,
         .match      = dnp3_mt_match_rule,
-        .matchsize  = sizeof( struct xt_dnp3_rule ),
+        .matchsize  = sizeof(struct xt_dnp3_rule),
         .me         = THIS_MODULE,
     },
 };
 
 
 static int __init
-dnp3_mt_init( void ) {
-    return xt_register_matches( dnp3_mt_reg, ARRAY_SIZE( dnp3_mt_reg ) );
+dnp3_mt_init(void) {
+    return xt_register_matches(dnp3_mt_reg, ARRAY_SIZE(dnp3_mt_reg));
 }
 
 
 static void __exit
-dnp3_mt_exit( void ) {
-    xt_unregister_matches( dnp3_mt_reg, ARRAY_SIZE( dnp3_mt_reg ) );
+dnp3_mt_exit(void) {
+    xt_unregister_matches(dnp3_mt_reg, ARRAY_SIZE(dnp3_mt_reg));
 }
 
 
-module_init( dnp3_mt_init );
-module_exit( dnp3_mt_exit );
+module_init(dnp3_mt_init);
+module_exit(dnp3_mt_exit);
 
-MODULE_AUTHOR( "Rob Casey <rcasey@gmail.com>" );
-MODULE_LICENSE( "GPL" );
+MODULE_AUTHOR("Rob Casey <rcasey@gmail.com>");
+MODULE_LICENSE("GPL");
 
